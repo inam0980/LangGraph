@@ -1,0 +1,41 @@
+{% extends "research/base.html" %}
+
+{% block title %}Home - AI Investment Research Agent{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>Research any public company with AI</h1>
+    <p class="muted">
+        Enter a stock ticker symbol. The agent will research the company,
+        analyze its financials, scan recent news, assess risks, and give you
+        an INVEST or PASS recommendation.
+    </p>
+
+    {% comment %} The form posts to the "analyze" view. {% endcomment %}
+    <form method="post" action="{% url 'analyze' %}" data-loading>
+        {% csrf_token %}
+        <label for="ticker"><strong>Stock Ticker or Company Name</strong></label>
+        <input
+            type="text"
+            id="ticker"
+            name="ticker"
+            placeholder="e.g. AAPL or Apple, MSFT or Microsoft, Google, Tesla"
+            autocomplete="off"
+            autofocus
+        >
+        <button type="submit">Analyze 🔍</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>How it works</h2>
+    <ol class="muted">
+        <li><strong>Company Research</strong> — name, industry, sector, market cap, CEO</li>
+        <li><strong>Financial Analysis</strong> — revenue, profitability, debt, P/E, cash flow → score</li>
+        <li><strong>News Analysis</strong> — recent headlines + sentiment</li>
+        <li><strong>Risk Analysis</strong> — regulatory, competition, financial, market → score</li>
+        <li><strong>Investment Decision</strong> — overall score + recommendation + reasoning</li>
+    </ol>
+    <p class="muted"><em>Note: analysis can take 10–30 seconds (multiple AI calls).</em></p>
+</div>
+{% endblock %}

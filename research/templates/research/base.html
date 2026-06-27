@@ -1,0 +1,158 @@
+{% comment %}
+Base template: shared layout, styles, and navigation.
+Child templates fill the {% block content %} section.
+{% endcomment %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI Investment Research Agent{% endblock %}</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card: #1e293b;
+            --muted: #94a3b8;
+            --text: #e2e8f0;
+            --accent: #38bdf8;
+            --good: #22c55e;
+            --bad: #ef4444;
+            --warn: #f59e0b;
+            --border: #334155;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        header {
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+        }
+        header a { color: var(--accent); text-decoration: none; font-weight: 700; }
+        .container { max-width: 960px; margin: 0 auto; padding: 2rem; }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        h1, h2, h3 { margin-top: 0; }
+        h2 { color: var(--accent); font-size: 1.2rem; }
+        .muted { color: var(--muted); }
+        input[type="text"] {
+            width: 100%;
+            padding: .8rem 1rem;
+            font-size: 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #0b1220;
+            color: var(--text);
+        }
+        button {
+            margin-top: 1rem;
+            padding: .8rem 1.4rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            background: var(--accent);
+            color: #042f3f;
+            cursor: pointer;
+        }
+        button:hover { opacity: .9; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .kv { display: flex; justify-content: space-between; padding: .35rem 0; border-bottom: 1px dashed var(--border); }
+        .kv:last-child { border-bottom: none; }
+        .badge {
+            display: inline-block; padding: .25rem .7rem; border-radius: 999px;
+            font-weight: 700; font-size: .9rem;
+        }
+        .badge.invest { background: rgba(34,197,94,.15); color: var(--good); }
+        .badge.pass   { background: rgba(239,68,68,.15); color: var(--bad); }
+        .badge.positive { background: rgba(34,197,94,.15); color: var(--good); }
+        .badge.neutral  { background: rgba(245,158,11,.15); color: var(--warn); }
+        .badge.negative { background: rgba(239,68,68,.15); color: var(--bad); }
+        .score { font-size: 2rem; font-weight: 800; }
+        ul { margin: .4rem 0; padding-left: 1.2rem; }
+        .alert { padding: .8rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
+        .alert.error { background: rgba(239,68,68,.12); color: #fca5a5; }
+        a.news-link { color: var(--accent); text-decoration: none; }
+        a.news-link:hover { text-decoration: underline; }
+        @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+        /* ---- Loading overlay + spinner ---- */
+        #loading-overlay {
+            display: none;                 /* shown via JS on form submit */
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, .85);
+            backdrop-filter: blur(2px);
+            z-index: 1000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1.2rem;
+            text-align: center;
+            padding: 1rem;
+        }
+        #loading-overlay.show { display: flex; }
+        .spinner {
+            width: 56px;
+            height: 56px;
+            border: 6px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading-overlay .loading-text { font-weight: 700; font-size: 1.1rem; }
+        #loading-overlay .loading-sub { color: var(--muted); font-size: .9rem; }
+    </style>
+</head>
+<body>
+    {# Full-screen loading overlay, hidden until a form is submitted #}
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">🔍 Analyzing… please wait</div>
+        <div class="loading-sub">Researching company, financials, news &amp; risks (10–30s)</div>
+    </div>
+    <header>
+        📈 <a href="{% url 'home' %}">AI Investment Research Agent</a>
+    </header>
+    <div class="container">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert error">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+        // Show the loading overlay whenever a form marked data-loading is submitted.
+        document.addEventListener("submit", function (event) {
+            var form = event.target;
+            if (form.matches("form[data-loading]")) {
+                document.getElementById("loading-overlay").classList.add("show");
+                // Disable the submit button so users can't double-submit.
+                var btn = form.querySelector("button[type=submit]");
+                if (btn) { btn.disabled = true; btn.textContent = "Analyzing…"; }
+            }
+        });
+
+        // If the user navigates back to this page, hide the overlay again
+        // (browsers can restore it from cache in the "shown" state).
+        window.addEventListener("pageshow", function () {
+            document.getElementById("loading-overlay").classList.remove("show");
+        });
+    </script>
+</body>
+</html>

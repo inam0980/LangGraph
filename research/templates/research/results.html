@@ -1,0 +1,141 @@
+{% extends "research/base.html" %}
+
+{% block title %}{{ company.name }} - Analysis{% endblock %}
+
+{% block content %}
+
+{% comment %} Show any non-fatal errors collected during the workflow. {% endcomment %}
+{% if errors %}
+    {% for err in errors %}
+        <div class="alert error">⚠️ {{ err }}</div>
+    {% endfor %}
+{% endif %}
+
+{# ---------------- Headline: recommendation + overall score ---------------- #}
+<div class="card">
+    <div class="grid">
+        <div>
+            <h1 style="margin-bottom:.2rem;">{{ company.name }} <span class="muted">({{ ticker }})</span></h1>
+            <p class="muted">{{ company.industry }} · {{ company.sector }}</p>
+            {% if decision.recommendation == "INVEST" %}
+                <span class="badge invest">✅ INVEST</span>
+            {% else %}
+                <span class="badge pass">⛔ PASS</span>
+            {% endif %}
+        </div>
+        <div style="text-align:right;">
+            <div class="muted">Overall Score</div>
+            <div class="score">{{ decision.overall_score }}<span class="muted">/10</span></div>
+        </div>
+    </div>
+</div>
+
+{# ---------------- Score summary ---------------- #}
+<div class="card">
+    <h2>Scores</h2>
+    <div class="grid">
+        <div class="kv"><span>Financial Score</span><strong>{{ financials.financial_score }}/10</strong></div>
+        <div class="kv"><span>Risk Score</span><strong>{{ risk.risk_score }}/10</strong></div>
+        <div class="kv"><span>Sentiment Score</span><strong>{{ news.sentiment_score }}/10</strong></div>
+        <div class="kv"><span>Overall Score</span><strong>{{ decision.overall_score }}/10</strong></div>
+    </div>
+</div>
+
+{# ---------------- Company overview ---------------- #}
+<div class="card">
+    <h2>Company Overview</h2>
+    <div class="kv"><span>Name</span><strong>{{ company.name }}</strong></div>
+    <div class="kv"><span>Industry</span><strong>{{ company.industry }}</strong></div>
+    <div class="kv"><span>Sector</span><strong>{{ company.sector }}</strong></div>
+    <div class="kv"><span>Market Cap</span><strong>{{ company.market_cap }}</strong></div>
+    <div class="kv"><span>CEO</span><strong>{{ company.ceo }}</strong></div>
+    {% if company.summary %}
+        <p class="muted" style="margin-top:1rem;">{{ company.summary|truncatewords:60 }}</p>
+    {% endif %}
+</div>
+
+{# ---------------- Financial analysis ---------------- #}
+<div class="card">
+    <h2>Financial Analysis — {{ financials.financial_score }}/10</h2>
+    <div class="grid">
+        <div class="kv"><span>Revenue</span><strong>{{ financials.metrics.revenue }}</strong></div>
+        <div class="kv"><span>Revenue Growth</span><strong>{{ financials.metrics.revenue_growth }}</strong></div>
+        <div class="kv"><span>Profit Margin</span><strong>{{ financials.metrics.profit_margin }}</strong></div>
+        <div class="kv"><span>Operating Margin</span><strong>{{ financials.metrics.operating_margin }}</strong></div>
+        <div class="kv"><span>P/E Ratio</span><strong>{{ financials.metrics.pe_ratio }}</strong></div>
+        <div class="kv"><span>Forward P/E</span><strong>{{ financials.metrics.forward_pe }}</strong></div>
+        <div class="kv"><span>Debt / Equity</span><strong>{{ financials.metrics.debt_to_equity }}</strong></div>
+        <div class="kv"><span>Total Debt</span><strong>{{ financials.metrics.total_debt }}</strong></div>
+        <div class="kv"><span>Free Cash Flow</span><strong>{{ financials.metrics.free_cash_flow }}</strong></div>
+        <div class="kv"><span>Return on Equity</span><strong>{{ financials.metrics.return_on_equity }}</strong></div>
+    </div>
+    <p style="margin-top:1rem;">{{ financials.analysis }}</p>
+</div>
+
+{# ---------------- News analysis ---------------- #}
+<div class="card">
+    <h2>
+        News Analysis —
+        <span class="badge {{ news.sentiment }}">{{ news.sentiment|capfirst }}</span>
+        <span class="muted" style="font-size:.9rem;">({{ news.sentiment_score }}/10)</span>
+    </h2>
+    <p>{{ news.summary }}</p>
+    {% if news.headlines %}
+        <h3 style="font-size:1rem;">Recent Headlines</h3>
+        <ul>
+            {% for h in news.headlines %}
+                <li>
+                    {% if h.link %}
+                        <a class="news-link" href="{{ h.link }}" target="_blank" rel="noopener">{{ h.title }}</a>
+                    {% else %}
+                        {{ h.title }}
+                    {% endif %}
+                    <span class="muted"> — {{ h.publisher }}</span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+</div>
+
+{# ---------------- Risk analysis ---------------- #}
+<div class="card">
+    <h2>Risk Analysis — {{ risk.risk_score }}/10</h2>
+    <div class="kv"><span><strong>Regulatory</strong></span></div>
+    <p class="muted">{{ risk.regulatory }}</p>
+    <div class="kv"><span><strong>Competition</strong></span></div>
+    <p class="muted">{{ risk.competition }}</p>
+    <div class="kv"><span><strong>Financial</strong></span></div>
+    <p class="muted">{{ risk.financial }}</p>
+    <div class="kv"><span><strong>Market</strong></span></div>
+    <p class="muted">{{ risk.market }}</p>
+</div>
+
+{# ---------------- Final decision ---------------- #}
+<div class="card">
+    <h2>Investment Decision</h2>
+    <p>
+        {% if decision.recommendation == "INVEST" %}
+            <span class="badge invest">✅ INVEST</span>
+        {% else %}
+            <span class="badge pass">⛔ PASS</span>
+        {% endif %}
+        &nbsp; Overall Score: <strong>{{ decision.overall_score }}/10</strong>
+    </p>
+
+    {% if decision.strengths %}
+        <h3 style="font-size:1rem;">Key Strengths</h3>
+        <ul>{% for s in decision.strengths %}<li>{{ s }}</li>{% endfor %}</ul>
+    {% endif %}
+
+    {% if decision.risks %}
+        <h3 style="font-size:1rem;">Key Risks</h3>
+        <ul>{% for r in decision.risks %}<li>{{ r }}</li>{% endfor %}</ul>
+    {% endif %}
+
+    <h3 style="font-size:1rem;">Reasoning</h3>
+    <p>{{ decision.reasoning }}</p>
+</div>
+
+<a href="{% url 'home' %}"><button>← Analyze another company</button></a>
+
+{% endblock %}
