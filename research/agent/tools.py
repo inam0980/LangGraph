@@ -53,17 +53,40 @@ def _pct(value: Any) -> str:
 
 _info_cache: dict[str, dict[str, Any]] = {}
 
-def _safe_info(ticker: str) -> dict[str, Any]:
-    """Fetch yfinance ``.info`` with error handling and in-process caching."""
+def _safe_info(ticker: str, retries: int = 3) -> dict[str, Any]:
+    """Fetch yfinance ``.info`` with caching + retry on rate limits.
+
+    Yahoo Finance aggressively rate-limits shared cloud IPs (e.g. the free
+    PythonAnywhere tier), returning 429 "Too Many Requests". We retry a few
+    times with exponential backoff before giving up.
+    """
+    import time
+
     if ticker in _info_cache:
         return _info_cache[ticker]
-    print(f"[agent] fetching yfinance info for {ticker}...", flush=True)
-    data = yf.Ticker(ticker).info or {}
-    print(f"[agent] yfinance info fetched for {ticker}", flush=True)
-    if not data or data.get("regularMarketPrice") is None and not data.get("longName"):
-        return data
-    _info_cache[ticker] = data
-    return data
+
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            print(f"[agent] fetching yfinance info for {ticker} (attempt {attempt + 1})...", flush=True)
+            data = yf.Ticker(ticker).info or {}
+            if data and (data.get("longName") or data.get("shortName")):
+                print(f"[agent] yfinance info fetched for {ticker}", flush=True)
+                _info_cache[ticker] = data
+                return data
+            # Empty data can also mean a transient block; retry.
+            last_exc = RuntimeError("empty response")
+        except Exception as exc:  # noqa: BLE001 - includes rate-limit errors
+            last_exc = exc
+            print(f"[agent] yfinance error for {ticker}: {exc}", flush=True)
+
+        if attempt < retries - 1:
+            wait = 2 ** attempt  # 1s, 2s, 4s
+            print(f"[agent] retrying in {wait}s...", flush=True)
+            time.sleep(wait)
+
+    print(f"[agent] giving up on {ticker}: {last_exc}", flush=True)
+    return {}
 
 
 # ---------------------------------------------------------------------------
