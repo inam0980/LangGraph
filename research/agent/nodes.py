@@ -20,13 +20,12 @@ import json
 from typing import Any
 
 from .llm import ask_json
+
 from .state import AgentState
 from .tools import (
-    analyze_sentiment,
     get_company_information,
     get_financial_data,
     get_recent_news,
-    make_investment_decision,
 )
 
 
@@ -43,6 +42,7 @@ def _append_error(state: AgentState, message: str) -> list[str]:
 def company_research_node(state: AgentState) -> AgentState:
     """Collect the basic company profile via the company information tool."""
     ticker = state["ticker"]
+    print(f"[node 1/5] company research: {ticker}", flush=True)
     company = get_company_information(ticker)
 
     if "error" in company:
@@ -55,8 +55,9 @@ def company_research_node(state: AgentState) -> AgentState:
 # 2. Financial Analysis Node
 # ---------------------------------------------------------------------------
 def financial_analysis_node(state: AgentState) -> AgentState:
-    """Pull financial metrics, then ask Gemini for a 1-10 health score."""
+    """Pull financial metrics — analysis deferred to the decision node."""
     ticker = state["ticker"]
+    print(f"[node 2/5] financial analysis: {ticker}", flush=True)
     metrics = get_financial_data(ticker)
 
     if "error" in metrics:
@@ -65,129 +66,117 @@ def financial_analysis_node(state: AgentState) -> AgentState:
             "errors": _append_error(state, metrics["error"]),
         }
 
-    system = (
-        "You are a financial analyst. Given these metrics, assess revenue "
-        "growth, profitability, debt levels, valuation (P/E), and cash flow. "
-        "Reply with JSON ONLY in this shape: "
-        '{"analysis": <2-4 sentence summary>, "financial_score": <integer 1-10>}. '
-        "10 = excellent financial health, 1 = very poor."
-    )
-    company_name = state.get("company", {}).get("name", ticker)
-    user = f"Company: {company_name}\nMetrics:\n{json.dumps(metrics, indent=2)}"
-    llm_result = ask_json(system, user)
-
-    financials: dict[str, Any] = {
-        "metrics": metrics,
-        "analysis": llm_result.get("analysis", "Analysis unavailable."),
-        "financial_score": _clamp_score(llm_result.get("financial_score", 5)),
-    }
-    return {"financials": financials}
+    return {"financials": {"metrics": metrics, "analysis": "", "financial_score": 5}}
 
 
 # ---------------------------------------------------------------------------
 # 3. News Analysis Node
 # ---------------------------------------------------------------------------
 def news_analysis_node(state: AgentState) -> AgentState:
-    """Fetch recent news, summarize it, and score the sentiment."""
+    """Fetch recent news headlines — analysis deferred to the decision node."""
+    print("[node 3/5] news analysis", flush=True)
     ticker = state["ticker"]
-    company_name = state.get("company", {}).get("name", ticker)
+    print("[node 3/5] fetching news...", flush=True)
     headlines = get_recent_news(ticker)
+    print(f"[node 3/5] got {len(headlines)} headlines", flush=True)
 
-    if not headlines:
-        return {
-            "news": {
-                "headlines": [],
-                "summary": "No recent news found.",
-                "sentiment": "neutral",
-                "sentiment_score": 5,
-            }
+    return {
+        "news": {
+            "headlines": headlines,
+            "summary": "",
+            "sentiment": "neutral",
+            "sentiment_score": 5,
         }
-
-    headline_text = "\n".join(f"- {h['title']} ({h['publisher']})" for h in headlines)
-
-    # Summarize key events with the LLM.
-    summary_system = (
-        "You summarize financial news. Given the headlines, write a concise "
-        "summary of the key events. Reply with JSON ONLY: "
-        '{"summary": <3-5 sentences>}.'
-    )
-    summary_result = ask_json(summary_system, f"{company_name} headlines:\n{headline_text}")
-    summary = summary_result.get("summary", "Summary unavailable.")
-
-    # Score sentiment using the dedicated sentiment tool.
-    sentiment = analyze_sentiment(headline_text)
-
-    news = {
-        "headlines": headlines,
-        "summary": summary,
-        "sentiment": sentiment.get("sentiment", "neutral"),
-        "sentiment_score": _clamp_score(sentiment.get("sentiment_score", 5)),
     }
-    return {"news": news}
 
 
 # ---------------------------------------------------------------------------
 # 4. Risk Analysis Node
 # ---------------------------------------------------------------------------
 def risk_analysis_node(state: AgentState) -> AgentState:
-    """Identify regulatory, competition, financial, and market risks."""
-    company = state.get("company", {})
-    financials = state.get("financials", {})
-    news = state.get("news", {})
-
-    system = (
-        "You are a risk analyst. Identify the company's key risks across four "
-        "categories. Reply with JSON ONLY in this exact shape:\n"
-        "{\n"
-        '  "regulatory": <1-2 sentences>,\n'
-        '  "competition": <1-2 sentences>,\n'
-        '  "financial": <1-2 sentences>,\n'
-        '  "market": <1-2 sentences>,\n'
-        '  "risk_score": <integer 1-10>\n'
-        "}\n"
-        "risk_score: 1 = very low risk, 10 = very high risk."
-    )
-    context = {
-        "company": company,
-        "financials": financials.get("metrics", {}),
-        "news_summary": news.get("summary", ""),
-        "news_sentiment": news.get("sentiment", "neutral"),
-    }
-    result = ask_json(system, json.dumps(context, indent=2))
-
-    risk = {
-        "regulatory": result.get("regulatory", "N/A"),
-        "competition": result.get("competition", "N/A"),
-        "financial": result.get("financial", "N/A"),
-        "market": result.get("market", "N/A"),
-        "risk_score": _clamp_score(result.get("risk_score", 5)),
-    }
-    return {"risk": risk}
+    """Risk analysis deferred to the decision node (single Gemini call)."""
+    print("[node 4/5] risk analysis (pass-through)", flush=True)
+    return {"risk": {"regulatory": "", "competition": "", "financial": "", "market": "", "risk_score": 5}}
 
 
 # ---------------------------------------------------------------------------
 # 5. Investment Decision Node
 # ---------------------------------------------------------------------------
 def investment_decision_node(state: AgentState) -> AgentState:
-    """Combine every previous output into the final recommendation."""
+    """Single Gemini call that produces all scores, analysis, and the verdict."""
+    print("[node 5/5] investment decision - single Gemini call", flush=True)
+
+    company = state.get("company", {})
+    metrics = state.get("financials", {}).get("metrics", {})
+    headlines = [h["title"] for h in state.get("news", {}).get("headlines", [])]
+
+    system = (
+        "You are a senior investment analyst. Given the company profile, financial metrics, "
+        "and recent news headlines, produce a complete analysis in ONE response.\n"
+        "Reply with JSON ONLY in this exact shape:\n"
+        "{\n"
+        '  "financial_analysis": <2-3 sentence financial health summary>,\n'
+        '  "financial_score": <integer 1-10>,\n'
+        '  "news_summary": <3-5 sentence summary of recent news>,\n'
+        '  "sentiment": <"positive"|"neutral"|"negative">,\n'
+        '  "sentiment_score": <integer 1-10>,\n'
+        '  "regulatory_risk": <1-2 sentences>,\n'
+        '  "competition_risk": <1-2 sentences>,\n'
+        '  "financial_risk": <1-2 sentences>,\n'
+        '  "market_risk": <1-2 sentences>,\n'
+        '  "risk_score": <integer 1-10, 1=very low 10=very high>,\n'
+        '  "recommendation": <"INVEST"|"PASS">,\n'
+        '  "overall_score": <integer 1-10>,\n'
+        '  "strengths": [<string>, ...],\n'
+        '  "risks": [<string>, ...],\n'
+        '  "reasoning": <3-5 sentence investment reasoning>\n'
+        "}"
+    )
+
     context = {
-        "company": state.get("company", {}),
-        "financials": {
-            "metrics": state.get("financials", {}).get("metrics", {}),
-            "analysis": state.get("financials", {}).get("analysis", ""),
-            "financial_score": state.get("financials", {}).get("financial_score", 5),
-        },
-        "news": {
-            "summary": state.get("news", {}).get("summary", ""),
-            "sentiment": state.get("news", {}).get("sentiment", "neutral"),
-            "sentiment_score": state.get("news", {}).get("sentiment_score", 5),
-        },
-        "risk": state.get("risk", {}),
+        "company": company,
+        "financial_metrics": metrics,
+        "news_headlines": headlines,
     }
 
-    decision = make_investment_decision(context)
-    decision["overall_score"] = _clamp_score(decision.get("overall_score", 5))
-    return {"decision": decision}
+    result = ask_json(system, json.dumps(context, indent=2))
+    print(f"[node 5/5] Gemini keys: {list(result.keys())}", flush=True)
+
+    if "error" in result:
+        return {
+            "financials": {**state.get("financials", {}), "analysis": "Analysis failed.", "financial_score": 5},
+            "news": {**state.get("news", {}), "summary": "Unavailable.", "sentiment": "neutral", "sentiment_score": 5},
+            "risk": {"regulatory": "N/A", "competition": "N/A", "financial": "N/A", "market": "N/A", "risk_score": 5},
+            "decision": {"recommendation": "PASS", "overall_score": 5, "strengths": [], "risks": ["Analysis error."], "reasoning": result["error"]},
+        }
+
+    return {
+        "financials": {
+            **state.get("financials", {}),
+            "analysis": result.get("financial_analysis", ""),
+            "financial_score": _clamp_score(result.get("financial_score", 5)),
+        },
+        "news": {
+            **state.get("news", {}),
+            "summary": result.get("news_summary", ""),
+            "sentiment": result.get("sentiment", "neutral"),
+            "sentiment_score": _clamp_score(result.get("sentiment_score", 5)),
+        },
+        "risk": {
+            "regulatory": result.get("regulatory_risk") or result.get("regulatory", "N/A"),
+            "competition": result.get("competition_risk") or result.get("competition", "N/A"),
+            "financial": result.get("financial_risk") or result.get("financial", "N/A"),
+            "market": result.get("market_risk") or result.get("market", "N/A"),
+            "risk_score": _clamp_score(result.get("risk_score", 5)),
+        },
+        "decision": {
+            "recommendation": str(result.get("recommendation", "PASS")).upper(),
+            "overall_score": _clamp_score(result.get("overall_score", 5)),
+            "strengths": result.get("strengths", []),
+            "risks": result.get("risks", []),
+            "reasoning": result.get("reasoning", ""),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

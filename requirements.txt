@@ -5,11 +5,13 @@ Django==5.2.15
 python-dotenv==1.2.2
 
 # ---- AI / LLM stack ----
+# Note: google-generativeai is intentionally omitted. The app talks to Gemini
+# only through langchain-google-genai (which pulls in the lighter google-genai
+# SDK). This keeps the install small enough for PythonAnywhere's free tier.
 langgraph==1.2.6
 langchain==1.3.10
 langchain-core==1.4.8
 langchain-google-genai==4.2.5
-google-generativeai==0.8.6
 
 # ---- Data / validation ----
 yfinance==1.4.1

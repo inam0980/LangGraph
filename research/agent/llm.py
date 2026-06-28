@@ -72,8 +72,7 @@ def ask_json(system_prompt: str, user_prompt: str, temperature: float = 0.2) -> 
         cleaned = _strip_code_fences(raw)
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        # The model didn't return valid JSON. Return the raw text so the
-        # caller can still show *something* instead of crashing.
+        print(f"[llm] JSON parse failed. First 300 chars: {raw[:300]}", flush=True)
         return {"error": "Could not parse model response as JSON", "raw": raw}
     except Exception as exc:  # noqa: BLE001 - we want any failure to be visible but non-fatal
         return {"error": f"LLM call failed: {exc}"}
@@ -102,12 +101,20 @@ def _extract_text(content: Any) -> str:
 
 
 def _strip_code_fences(text: str) -> str:
-    """Remove Markdown code fences (```json ... ```) the model sometimes adds."""
+    """Extract JSON from model response — handles code fences and leading text."""
+    import re
+    # Handle ```json ... ``` or ``` ... ``` anywhere in the response
+    match = re.search(r"```(?:json)?\s*\n([\s\S]*?)\n```", text)
+    if match:
+        return match.group(1).strip()
+    # If the text starts directly with a fence
     if text.startswith("```"):
-        # Drop the first line (``` or ```json) and the trailing fence.
-        lines = text.splitlines()
-        lines = lines[1:]
+        lines = text.splitlines()[1:]
         if lines and lines[-1].strip().startswith("```"):
             lines = lines[:-1]
         return "\n".join(lines).strip()
+    # Try to extract a JSON object if there's leading text
+    brace = text.find("{")
+    if brace > 0:
+        return text[brace:]
     return text

@@ -51,17 +51,18 @@ def _pct(value: Any) -> str:
         return "N/A"
 
 
-def _safe_info(ticker: str) -> dict[str, Any]:
-    """Fetch yfinance ``.info`` with error handling.
+_info_cache: dict[str, dict[str, Any]] = {}
 
-    yfinance can raise or return an almost-empty dict for bad tickers, so we
-    normalize that into something predictable.
-    """
+def _safe_info(ticker: str) -> dict[str, Any]:
+    """Fetch yfinance ``.info`` with error handling and in-process caching."""
+    if ticker in _info_cache:
+        return _info_cache[ticker]
+    print(f"[agent] fetching yfinance info for {ticker}...", flush=True)
     data = yf.Ticker(ticker).info or {}
-    # yfinance returns a near-empty dict for invalid tickers.
+    print(f"[agent] yfinance info fetched for {ticker}", flush=True)
     if not data or data.get("regularMarketPrice") is None and not data.get("longName"):
-        # Still return whatever we have; caller decides if it's usable.
         return data
+    _info_cache[ticker] = data
     return data
 
 
