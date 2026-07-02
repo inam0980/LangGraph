@@ -14,12 +14,33 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 
-def get_llm(temperature: float = 0.2) -> ChatGoogleGenerativeAI:
+# Tried in order: if one model is rate-limited or down, the next takes over.
+# The GEMINI_MODEL env var (if set) is always tried first.
+_FALLBACK_MODELS = [
+    "gemini-3.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+]
+
+
+def _candidate_models() -> list[str]:
+    """Return the ordered list of models to try (env override first)."""
+    primary = os.getenv("GEMINI_MODEL", "").strip()
+    models = [primary] if primary else []
+    for name in _FALLBACK_MODELS:
+        if name not in models:
+            models.append(name)
+    return models
+
+
+def get_llm(temperature: float = 0.2, model: str | None = None) -> ChatGoogleGenerativeAI:
     """Create and return a configured Gemini chat model.
 
     Args:
         temperature: Creativity of the model. Lower = more deterministic,
             which is what we want for financial analysis.
+        model: Model name to use. Defaults to GEMINI_MODEL from the
+            environment (or the first fallback model).
 
     Returns:
         A ready-to-use ``ChatGoogleGenerativeAI`` instance.
@@ -34,9 +55,8 @@ def get_llm(temperature: float = 0.2) -> ChatGoogleGenerativeAI:
             "your Gemini API key from https://aistudio.google.com/app/apikey"
         )
 
-    model_name = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
     return ChatGoogleGenerativeAI(
-        model=model_name,
+        model=model or _candidate_models()[0],
         google_api_key=api_key,
         temperature=temperature,
     )
@@ -61,36 +81,41 @@ def ask_json(system_prompt: str, user_prompt: str, temperature: float = 0.2) -> 
     """
     import time
 
-    llm = get_llm(temperature=temperature)
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_prompt),
     ]
 
-    # Gemini's free tier rate-limits (429) and occasionally overloads (503).
-    # Both are transient, so retry with backoff before giving up.
-    retries = 3
+    # Reliability strategy: walk the model fallback chain. A rate-limited
+    # (429) or overloaded (503) model is skipped in favor of the next one,
+    # since each model has its own quota pool. Transient errors get one
+    # short retry on the same model first.
     last_error = ""
-    for attempt in range(retries):
-        raw = ""
-        try:
-            response = llm.invoke(messages)
-            raw = _extract_text(response.content).strip()
-            cleaned = _strip_code_fences(raw)
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            print(f"[llm] JSON parse failed. First 300 chars: {raw[:300]}", flush=True)
-            return {"error": "Could not parse model response as JSON", "raw": raw}
-        except Exception as exc:  # noqa: BLE001 - we want any failure to be visible but non-fatal
-            last_error = str(exc)
-            print(f"[llm] Gemini call failed (attempt {attempt + 1}/{retries}): {exc}", flush=True)
-            # Permanent failures (bad/blocked/leaked key) won't fix themselves.
-            if "PERMISSION_DENIED" in last_error or "API_KEY_INVALID" in last_error or "API key" in last_error:
-                break
-            if attempt < retries - 1:
-                wait = 5 * (attempt + 1)  # 5s, 10s — enough for a per-minute limit to clear
-                print(f"[llm] retrying in {wait}s...", flush=True)
-                time.sleep(wait)
+    for model_name in _candidate_models():
+        llm = get_llm(temperature=temperature, model=model_name)
+        for attempt in range(2):
+            raw = ""
+            try:
+                response = llm.invoke(messages)
+                raw = _extract_text(response.content).strip()
+                cleaned = _strip_code_fences(raw)
+                return json.loads(cleaned)
+            except json.JSONDecodeError:
+                print(f"[llm] {model_name}: JSON parse failed. First 300 chars: {raw[:300]}", flush=True)
+                return {"error": "Could not parse model response as JSON", "raw": raw}
+            except Exception as exc:  # noqa: BLE001 - we want any failure to be visible but non-fatal
+                last_error = str(exc)
+                print(f"[llm] {model_name} failed (attempt {attempt + 1}/2): {exc}", flush=True)
+                # Permanent failures (bad/blocked/leaked key) won't fix themselves.
+                if "PERMISSION_DENIED" in last_error or "API_KEY_INVALID" in last_error:
+                    return {"error": f"LLM call failed: {last_error}"}
+                # Rate limit / quota: this model is exhausted for now — move
+                # to the next model immediately instead of waiting it out.
+                if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error or "quota" in last_error.lower():
+                    break
+                if attempt == 0:
+                    time.sleep(3)
+        print(f"[llm] switching to next fallback model...", flush=True)
 
     return {"error": f"LLM call failed: {last_error}"}
 
