@@ -34,10 +34,13 @@ def analyze(request):
     # use the resolved ticker for display and the saved record.
     ticker = result.get("ticker", ticker)
 
-    # If the company lookup failed entirely, send the user back with a message.
+    # If the company lookup (or the whole workflow) failed, send the user
+    # back with the most specific message we have.
     company = result.get("company", {})
-    if "error" in company and not company.get("name"):
-        messages.error(request, company["error"])
+    if not company.get("name"):
+        errors = result.get("errors") or []
+        message = company.get("error") or (errors[0] if errors else f"Could not analyze '{ticker}'. Please try again.")
+        messages.error(request, message)
         return redirect("home")
 
     # Persist the analysis (optional but nice to have a history).

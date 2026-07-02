@@ -102,7 +102,10 @@ def ask_json(system_prompt: str, user_prompt: str, temperature: float = 0.2) -> 
                 return json.loads(cleaned)
             except json.JSONDecodeError:
                 print(f"[llm] {model_name}: JSON parse failed. First 300 chars: {raw[:300]}", flush=True)
-                return {"error": "Could not parse model response as JSON", "raw": raw}
+                last_error = "Could not parse model response as JSON"
+                # Malformed JSON is usually a one-off; retry once, then let
+                # the next model take a shot.
+                continue
             except Exception as exc:  # noqa: BLE001 - we want any failure to be visible but non-fatal
                 last_error = str(exc)
                 print(f"[llm] {model_name} failed (attempt {attempt + 1}/2): {exc}", flush=True)

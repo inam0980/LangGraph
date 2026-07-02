@@ -105,7 +105,7 @@ def _pct(value: Any) -> str:
 
 _info_cache: dict[str, dict[str, Any]] = {}
 
-def _safe_info(ticker: str, retries: int = 3) -> dict[str, Any]:
+def _safe_info(ticker: str, retries: int = 2) -> dict[str, Any]:
     """Fetch yfinance ``.info`` with caching + retry on rate limits.
 
     Yahoo Finance aggressively rate-limits shared cloud IPs (e.g. the free
@@ -138,7 +138,181 @@ def _safe_info(ticker: str, retries: int = 3) -> dict[str, Any]:
             time.sleep(wait)
 
     print(f"[agent] giving up on {ticker}: {last_exc}", flush=True)
+    # Cache the failure too: when Yahoo blocks this process (e.g. on
+    # PythonAnywhere), later nodes should jump straight to the fallback
+    # instead of re-running the whole retry dance.
+    _info_cache[ticker] = {}
     return {}
+
+
+# ---------------------------------------------------------------------------
+# Finnhub fallback (first choice when Yahoo fails — its free tier allows 60
+# requests/minute *per key*, so PythonAnywhere's shared IP doesn't matter)
+# ---------------------------------------------------------------------------
+_FH_BASE = "https://finnhub.io/api/v1"
+_fh_cache: dict[tuple[str, str], Any] = {}
+
+
+def _fh_get(path: str, params: dict[str, str], retries: int = 2) -> Any:
+    """Call the Finnhub API and return parsed JSON (dict with 'error' on failure).
+
+    Finnhub's free tier has a burst limit that briefly answers 429 when
+    several calls land at once (one analysis makes 3-4), so a 429 gets one
+    short-wait retry before we give up.
+    """
+    import time
+
+    api_key = os.getenv("FINNHUB_API_KEY", "").strip()
+    if not api_key:
+        return {"error": "FINNHUB_API_KEY is not set. Get a free key at "
+                         "https://finnhub.io/register"}
+
+    error = "Finnhub request failed."
+    for attempt in range(retries):
+        try:
+            resp = requests.get(f"{_FH_BASE}/{path}", params={**params, "token": api_key}, timeout=30)
+            if resp.status_code == 429:
+                error = "Finnhub rate limit hit (60/min)."
+                if attempt < retries - 1:
+                    print("[agent] Finnhub 429, retrying in 2s...", flush=True)
+                    time.sleep(2)
+                continue
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:  # noqa: BLE001
+            error = f"Finnhub request failed: {exc}"
+            if attempt < retries - 1:
+                time.sleep(1)
+    return {"error": error}
+
+
+def _fh_get_cached(path: str, cache_key: str, **params: str) -> Any:
+    """Like ``_fh_get`` but caches successful responses per (path, symbol)."""
+    key = (path, cache_key)
+    if key in _fh_cache:
+        return _fh_cache[key]
+    data = _fh_get(path, params)
+    if not (isinstance(data, dict) and "error" in data):
+        _fh_cache[key] = data
+    return data
+
+
+def _pct_direct(value: Any) -> str:
+    """Format a value that is ALREADY a percentage (24.3 -> '24.3%').
+
+    Finnhub metrics come as percentages, unlike yfinance/Alpha Vantage
+    fractions — using ``_pct`` here would multiply by 100 twice.
+    """
+    try:
+        return f"{float(value):.1f}%"
+    except (TypeError, ValueError):
+        return "N/A"
+
+
+def _fh_company_information(ticker: str) -> dict[str, Any]:
+    """Company profile from Finnhub (profile2 endpoint)."""
+    print(f"[agent] Yahoo failed; trying Finnhub for {ticker} company info...", flush=True)
+    data = _fh_get_cached("stock/profile2", ticker, symbol=ticker)
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+    if not data or not data.get("name"):
+        return {"error": f"No company data found for ticker '{ticker}'."}
+    market_cap = data.get("marketCapitalization")  # reported in millions
+    return {
+        "name": data.get("name") or ticker,
+        "industry": data.get("finnhubIndustry", "N/A") or "N/A",
+        "sector": "N/A",
+        "market_cap": _human_money(market_cap * 1e6 if market_cap else None),
+        "ceo": "N/A",
+        "summary": "",
+    }
+
+
+def _fh_financial_data(ticker: str) -> dict[str, Any]:
+    """Key financial metrics from Finnhub (stock/metric endpoint)."""
+    print(f"[agent] Yahoo failed; trying Finnhub for {ticker} financials...", flush=True)
+    data = _fh_get_cached("stock/metric", ticker, symbol=ticker, metric="all")
+    if isinstance(data, dict) and "error" in data:
+        return {"error": data["error"]}
+    metric = (data or {}).get("metric") or {}
+    if not metric:
+        return {"error": f"No financial data found for ticker '{ticker}'."}
+
+    # Total revenue isn't exposed directly; derive it from per-share revenue
+    # and shares outstanding (profile2 reports shares in millions).
+    revenue = None
+    profile = _fh_get_cached("stock/profile2", ticker, symbol=ticker)
+    rps = metric.get("revenuePerShareTTM")
+    shares = (profile or {}).get("shareOutstanding") if isinstance(profile, dict) else None
+    if rps and shares:
+        revenue = float(rps) * float(shares) * 1e6
+
+    return {
+        "revenue": _human_money(revenue),
+        "revenue_growth": _pct_direct(metric.get("revenueGrowthTTMYoy")),
+        "profit_margin": _pct_direct(metric.get("netProfitMarginTTM")),
+        "operating_margin": _pct_direct(metric.get("operatingMarginTTM")),
+        "pe_ratio": _round(metric.get("peTTM") or metric.get("peBasicExclExtraTTM")),
+        "forward_pe": "N/A",
+        "debt_to_equity": _round(metric.get("totalDebt/totalEquityQuarterly")),
+        "total_debt": "N/A",
+        "free_cash_flow": "N/A",
+        "operating_cash_flow": "N/A",
+        "return_on_equity": _pct_direct(metric.get("roeTTM")),
+    }
+
+
+def _fh_recent_news(ticker: str, limit: int = 6) -> list[dict[str, str]]:
+    """Recent headlines from Finnhub (company-news, last 7 days)."""
+    from datetime import date, timedelta
+
+    print(f"[agent] Yahoo failed; trying Finnhub for {ticker} news...", flush=True)
+    today = date.today()
+    data = _fh_get_cached(
+        "company-news", ticker,
+        symbol=ticker,
+        **{"from": (today - timedelta(days=7)).isoformat(), "to": today.isoformat()},
+    )
+    if not isinstance(data, list):
+        return []
+    return [
+        {
+            "title": item.get("headline", ""),
+            "publisher": item.get("source") or "Unknown",
+            "link": item.get("url") or "",
+        }
+        for item in data[:limit]
+        if item.get("headline")
+    ]
+
+
+def _fh_resolve_ticker(query: str) -> str:
+    """Name -> ticker via Finnhub symbol search ('' if nothing found)."""
+    data = _fh_get_cached("search", query.upper(), q=query)
+    results = (data or {}).get("result") if isinstance(data, dict) else None
+    if not results:
+        return ""
+    q = query.lower()
+
+    # The user may have typed an exact ticker ("AAPL") — trust that first.
+    for r in results:
+        if (r.get("symbol") or "").upper() == query.upper():
+            return query.upper()
+
+    def _plain_us_stock(r: dict[str, Any]) -> bool:
+        sym = r.get("symbol") or ""
+        return r.get("type") == "Common Stock" and "." not in sym and sym.isalpha()
+
+    # Prefer a common stock whose company name starts with the query,
+    # shortest name first ("APPLE INC" beats "APPLE HOSPITALITY REIT INC").
+    candidates = [r for r in results if _plain_us_stock(r) and (r.get("description") or "").lower().startswith(q)]
+    if candidates:
+        best = min(candidates, key=lambda r: len(r.get("description") or ""))
+        return (best.get("symbol") or "").upper()
+    for r in results:
+        if _plain_us_stock(r):
+            return (r.get("symbol") or "").upper()
+    return (results[0].get("symbol") or "").upper()
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +393,11 @@ def _av_resolve_ticker(query: str) -> str:
     data = _av_get_cached("SYMBOL_SEARCH", query.upper(), keywords=query)
     matches = data.get("bestMatches") or []
 
+    # The user may have typed an exact ticker ("AAPL") — trust that first.
+    for match in matches:
+        if (match.get("1. symbol") or "").upper() == query.upper():
+            return query.upper()
+
     us_equities = [
         m for m in matches
         if m.get("3. type") == "Equity" and m.get("4. region") == "United States" and m.get("1. symbol")
@@ -234,6 +413,84 @@ def _av_resolve_ticker(query: str) -> str:
         if match.get("1. symbol"):
             return match["1. symbol"].upper()
     return ""
+
+
+# ---------------------------------------------------------------------------
+# Gemini knowledge fallback (the absolute last resort — every live data API
+# failed, so ask the LLM to fill in what it knows; results are clearly
+# marked as AI-estimated so the user isn't misled)
+# ---------------------------------------------------------------------------
+def _llm_resolve_ticker(query: str) -> str:
+    """Ask Gemini for the ticker of a company name ('' if it doesn't know)."""
+    print(f"[agent] All search APIs failed; asking Gemini for '{query}' ticker...", flush=True)
+    result = ask_json(
+        "You identify US stock ticker symbols. Given a company name or ticker, "
+        "reply with JSON ONLY in this exact shape: {\"ticker\": \"AAPL\"}. "
+        "Use the primary US listing. If you do not recognize the company, "
+        "reply {\"ticker\": \"\"}.",
+        query,
+    )
+    ticker = str(result.get("ticker", "")).strip().upper()
+    if ticker.isalpha() and 1 <= len(ticker) <= 6:
+        return ticker
+    return ""
+
+
+def _llm_company_information(ticker: str) -> dict[str, Any]:
+    """Company profile from Gemini's own knowledge (marked as estimated)."""
+    print(f"[agent] All data APIs failed; asking Gemini about {ticker}...", flush=True)
+    result = ask_json(
+        "Live market data APIs are unavailable. From your general knowledge, "
+        "provide the company profile for the given US stock ticker. Reply with "
+        "JSON ONLY in this exact shape:\n"
+        "{\n"
+        '  "name": <official company name, or "" if you do not recognize the ticker>,\n'
+        '  "industry": <string>,\n'
+        '  "sector": <string>,\n'
+        '  "market_cap": <approximate, human-readable like "$3.1T", or "N/A">,\n'
+        '  "ceo": <current CEO name or "N/A">,\n'
+        '  "summary": <2-3 sentence description of the business>\n'
+        "}",
+        ticker,
+    )
+    if "error" in result or not str(result.get("name", "")).strip():
+        return {"error": f"No company data found for ticker '{ticker}'."}
+    summary = str(result.get("summary", "")).strip()
+    return {
+        "name": str(result.get("name")).strip(),
+        "industry": str(result.get("industry") or "N/A"),
+        "sector": str(result.get("sector") or "N/A"),
+        "market_cap": str(result.get("market_cap") or "N/A"),
+        "ceo": str(result.get("ceo") or "N/A"),
+        "summary": (summary + " (Note: live market data was unavailable — "
+                              "this profile is AI-estimated and may be outdated.)").strip(),
+    }
+
+
+def _llm_financial_data(ticker: str) -> dict[str, Any]:
+    """Approximate financial metrics from Gemini's knowledge (best effort)."""
+    print(f"[agent] All data APIs failed; asking Gemini for {ticker} financials...", flush=True)
+    result = ask_json(
+        "Live market data APIs are unavailable. From your general knowledge, "
+        "provide the most recent APPROXIMATE financial metrics you know for "
+        "the given US stock ticker. Use human-readable strings (e.g. \"$391B\", "
+        "\"24.3%\", \"33.2\") and \"N/A\" where you are not reasonably sure. "
+        "Reply with JSON ONLY in this exact shape:\n"
+        "{\n"
+        '  "revenue": <string>, "revenue_growth": <string>, "profit_margin": <string>,\n'
+        '  "operating_margin": <string>, "pe_ratio": <string>, "forward_pe": <string>,\n'
+        '  "debt_to_equity": <string>, "total_debt": <string>, "free_cash_flow": <string>,\n'
+        '  "operating_cash_flow": <string>, "return_on_equity": <string>\n'
+        "}\n"
+        "If you do not recognize the ticker, reply {\"revenue\": \"\"}.",
+        ticker,
+    )
+    if "error" in result or not str(result.get("revenue", "")).strip():
+        return {"error": f"No financial data found for ticker '{ticker}'."}
+    keys = ("revenue", "revenue_growth", "profit_margin", "operating_margin",
+            "pe_ratio", "forward_pe", "debt_to_equity", "total_debt",
+            "free_cash_flow", "operating_cash_flow", "return_on_equity")
+    return {key: str(result.get(key) or "N/A") for key in keys}
 
 
 # ---------------------------------------------------------------------------
@@ -281,12 +538,20 @@ def resolve_ticker(query: str) -> str:
     except Exception:  # noqa: BLE001 - search may be unavailable
         pass
 
-    # 3. Yahoo search failed (likely rate-limited) — try Alpha Vantage.
+    # 3. Yahoo search failed (likely rate-limited) — Finnhub first, then AV.
+    symbol = _fh_resolve_ticker(query)
+    if symbol:
+        return symbol
     symbol = _av_resolve_ticker(query)
     if symbol:
         return symbol
 
-    # 4. Nothing worked; return the cleaned input so the caller can error out.
+    # 4. Every search API failed — let Gemini identify the ticker.
+    symbol = _llm_resolve_ticker(query)
+    if symbol:
+        return symbol
+
+    # 5. Nothing worked; return the cleaned input so the caller can error out.
     return query.upper()
 
 
@@ -298,8 +563,15 @@ def get_company_information(ticker: str) -> dict[str, Any]:
     try:
         info = _safe_info(ticker)
         if not info.get("longName") and not info.get("shortName"):
-            # Yahoo gave nothing (bad symbol OR rate-limited) — try Alpha Vantage.
-            return _av_company_information(ticker)
+            # Yahoo gave nothing (bad symbol OR rate-limited) — walk the
+            # fallback chain: Finnhub, then AV, then Gemini's own knowledge.
+            result = _fh_company_information(ticker)
+            if "error" not in result:
+                return result
+            result = _av_company_information(ticker)
+            if "error" not in result:
+                return result
+            return _llm_company_information(ticker)
 
         # Find the CEO from the list of officers, if present.
         ceo = "N/A"
@@ -326,8 +598,15 @@ def get_financial_data(ticker: str) -> dict[str, Any]:
     try:
         info = _safe_info(ticker)
         if not info:
-            # Yahoo gave nothing (bad symbol OR rate-limited) — try Alpha Vantage.
-            return _av_financial_data(ticker)
+            # Yahoo gave nothing (bad symbol OR rate-limited) — walk the
+            # fallback chain: Finnhub, then AV, then Gemini's own knowledge.
+            result = _fh_financial_data(ticker)
+            if "error" not in result:
+                return result
+            result = _av_financial_data(ticker)
+            if "error" not in result:
+                return result
+            return _llm_financial_data(ticker)
 
         return {
             "revenue": _human_money(info.get("totalRevenue")),
@@ -356,9 +635,6 @@ def get_recent_news(ticker: str, limit: int = 6) -> list[dict[str, str]]:
         raw_items = yf.Ticker(ticker).news or []
     except Exception:  # noqa: BLE001
         raw_items = []
-    if not raw_items:
-        # Yahoo gave nothing (rate-limited?) — try Alpha Vantage instead.
-        return _av_recent_news(ticker, limit)
 
     headlines: list[dict[str, str]] = []
     for item in raw_items[:limit]:
@@ -378,6 +654,12 @@ def get_recent_news(ticker: str, limit: int = 6) -> list[dict[str, str]]:
             headlines.append(
                 {"title": title, "publisher": publisher or "Unknown", "link": link or ""}
             )
+
+    if not headlines:
+        # Yahoo gave nothing usable (rate-limited?) — Finnhub first, then AV.
+        headlines = _fh_recent_news(ticker, limit)
+        if not headlines:
+            headlines = _av_recent_news(ticker, limit)
     return headlines
 
 
