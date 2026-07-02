@@ -30,6 +30,10 @@ def analyze(request):
     # makes multiple Gemini calls.
     result = run_analysis(ticker)
 
+    # run_analysis resolves company names to real symbols (e.g. APPLE -> AAPL);
+    # use the resolved ticker for display and the saved record.
+    ticker = result.get("ticker", ticker)
+
     # If the company lookup failed entirely, send the user back with a message.
     company = result.get("company", {})
     if "error" in company and not company.get("name"):

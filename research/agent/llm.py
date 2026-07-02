@@ -59,23 +59,40 @@ def ask_json(system_prompt: str, user_prompt: str, temperature: float = 0.2) -> 
         The parsed JSON object as a Python dict. If parsing fails, returns a
         dict with an "error" key so callers can degrade gracefully.
     """
+    import time
+
     llm = get_llm(temperature=temperature)
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_prompt),
     ]
 
-    raw = ""
-    try:
-        response = llm.invoke(messages)
-        raw = _extract_text(response.content).strip()
-        cleaned = _strip_code_fences(raw)
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        print(f"[llm] JSON parse failed. First 300 chars: {raw[:300]}", flush=True)
-        return {"error": "Could not parse model response as JSON", "raw": raw}
-    except Exception as exc:  # noqa: BLE001 - we want any failure to be visible but non-fatal
-        return {"error": f"LLM call failed: {exc}"}
+    # Gemini's free tier rate-limits (429) and occasionally overloads (503).
+    # Both are transient, so retry with backoff before giving up.
+    retries = 3
+    last_error = ""
+    for attempt in range(retries):
+        raw = ""
+        try:
+            response = llm.invoke(messages)
+            raw = _extract_text(response.content).strip()
+            cleaned = _strip_code_fences(raw)
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            print(f"[llm] JSON parse failed. First 300 chars: {raw[:300]}", flush=True)
+            return {"error": "Could not parse model response as JSON", "raw": raw}
+        except Exception as exc:  # noqa: BLE001 - we want any failure to be visible but non-fatal
+            last_error = str(exc)
+            print(f"[llm] Gemini call failed (attempt {attempt + 1}/{retries}): {exc}", flush=True)
+            # Permanent failures (bad/blocked/leaked key) won't fix themselves.
+            if "PERMISSION_DENIED" in last_error or "API_KEY_INVALID" in last_error or "API key" in last_error:
+                break
+            if attempt < retries - 1:
+                wait = 5 * (attempt + 1)  # 5s, 10s — enough for a per-minute limit to clear
+                print(f"[llm] retrying in {wait}s...", flush=True)
+                time.sleep(wait)
+
+    return {"error": f"LLM call failed: {last_error}"}
 
 
 def _extract_text(content: Any) -> str:

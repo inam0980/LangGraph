@@ -3,9 +3,9 @@
 A "tool" in LangChain is just a function with a description and a typed
 signature. We expose five tools as required:
 
-    1. company_information_tool  -> basic company profile (yfinance)
-    2. financial_data_tool       -> key financial metrics (yfinance)
-    3. news_research_tool        -> recent news headlines (yfinance)
+    1. company_information_tool  -> basic company profile (Alpha Vantage)
+    2. financial_data_tool       -> key financial metrics (Alpha Vantage)
+    3. news_research_tool        -> recent news headlines (Alpha Vantage)
     4. sentiment_analysis_tool   -> classify text sentiment (Gemini)
     5. investment_decision_tool  -> combine everything into a verdict (Gemini)
 
@@ -16,15 +16,51 @@ Note on design: the heavy lifting lives in private ``_helper`` functions.
 The ``@tool``-decorated wrappers are thin. This lets the workflow nodes call
 the helpers directly (deterministic, fast) while the tools remain available
 for any LLM-driven / agentic use you add later.
+
+Data source: we use Alpha Vantage instead of yfinance. Alpha Vantage uses a
+per-account API key, so it works reliably from shared cloud IPs (e.g. the free
+PythonAnywhere tier) where Yahoo Finance / yfinance gets rate-limited (429).
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
+import requests
 import yfinance as yf
 from langchain_core.tools import tool
 
 from .llm import ask_json
+
+
+_AV_BASE = "https://www.alphavantage.co/query"
+
+
+def _av_get(params: dict[str, str]) -> dict[str, Any]:
+    """Call the Alpha Vantage API and return parsed JSON.
+
+    Adds the API key, handles network errors, and detects Alpha Vantage's
+    rate-limit / info responses (which come back as ``{"Note": ...}`` or
+    ``{"Information": ...}`` instead of real data).
+    """
+    api_key = os.getenv("ALPHAVANTAGE_API_KEY", "").strip()
+    if not api_key:
+        return {"error": "ALPHAVANTAGE_API_KEY is not set. Get a free key at "
+                         "https://www.alphavantage.co/support/#api-key"}
+    params = {**params, "apikey": api_key}
+    try:
+        resp = requests.get(_AV_BASE, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"Alpha Vantage request failed: {exc}"}
+
+    # Alpha Vantage signals quota/errors via these keys.
+    if "Note" in data or "Information" in data:
+        return {"error": data.get("Note") or data.get("Information") or "Rate limited by Alpha Vantage."}
+    if "Error Message" in data:
+        return {"error": data["Error Message"]}
+    return data
 
 
 # ---------------------------------------------------------------------------

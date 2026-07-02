@@ -3,6 +3,78 @@
 {% block title %}{{ company.name }} - Analysis{% endblock %}
 
 {% block content %}
+<style>
+    .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: .8rem;
+        margin-bottom: 1.2rem;
+        flex-wrap: wrap;
+    }
+    .hero-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 1.5rem;
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+    .company-name { font-size: 1.9rem; font-weight: 800; letter-spacing: -.01em; margin: 0 0 .3rem; }
+    .company-tags { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .8rem; }
+    .metric {
+        background: rgba(11,19,34,.55);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: .7rem .9rem;
+    }
+    .metric .m-label { font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .metric .m-value { font-size: 1.08rem; font-weight: 700; margin-top: .1rem; }
+    .metrics-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: .8rem; }
+    .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .risk-item {
+        background: rgba(11,19,34,.55);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: .9rem 1rem;
+    }
+    .risk-item .r-title { font-weight: 700; font-size: .92rem; margin-bottom: .25rem; }
+    .risk-item p { margin: 0; font-size: .88rem; color: var(--muted); }
+    .sr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+    .news-item {
+        display: flex;
+        flex-direction: column;
+        gap: .1rem;
+        padding: .65rem 0;
+        border-bottom: 1px dashed var(--border);
+    }
+    .news-item:last-child { border-bottom: none; }
+    .news-item .src { font-size: .78rem; color: var(--muted); }
+    .verdict-banner {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+        padding: 1rem 1.2rem;
+        border-radius: 14px;
+        margin-bottom: 1.2rem;
+        border: 1px solid;
+    }
+    .verdict-banner.invest { background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.3); }
+    .verdict-banner.pass   { background: rgba(248,113,113,.08); border-color: rgba(248,113,113,.3); }
+    .verdict-banner .v-word { font-size: 1.4rem; font-weight: 800; }
+    .verdict-banner.invest .v-word { color: var(--good); }
+    .verdict-banner.pass   .v-word { color: var(--bad); }
+
+    @media (max-width: 900px) { .metrics-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 640px) {
+        .metrics-grid { grid-template-columns: 1fr 1fr; }
+        .risk-grid, .sr-grid { grid-template-columns: 1fr; }
+        .company-name { font-size: 1.4rem; }
+        .hero-head { flex-direction: column; gap: .8rem; }
+        .topbar { justify-content: center; }
+        .topbar .chip-tag { display: none; }
+    }
+</style>
 
 {% comment %} Show any non-fatal errors collected during the workflow. {% endcomment %}
 {% if errors %}
@@ -11,129 +83,196 @@
     {% endfor %}
 {% endif %}
 
+{# ---------------- Top action bar ---------------- #}
+<div class="topbar">
+    <span class="chip-tag">Analysis · {{ ticker }}</span>
+    <a href="{% url 'home' %}"><button class="btn-ghost" style="padding:.55rem 1.1rem; font-size:.9rem;">← Analyze another company</button></a>
+</div>
+
 {# ---------------- Headline: recommendation + overall score ---------------- #}
 <div class="card">
-    <div class="grid">
+    <div class="hero-head">
         <div>
-            <h1 style="margin-bottom:.2rem;">{{ company.name }} <span class="muted">({{ ticker }})</span></h1>
-            <p class="muted">{{ company.industry }} · {{ company.sector }}</p>
+            <h1 class="company-name">{{ company.name }} <span class="muted" style="font-weight:600;">({{ ticker }})</span></h1>
+            <div class="company-tags">
+                {% if company.industry and company.industry != "N/A" %}<span class="chip-tag">{{ company.industry }}</span>{% endif %}
+                {% if company.sector and company.sector != "N/A" %}<span class="chip-tag">{{ company.sector }}</span>{% endif %}
+                {% if company.market_cap and company.market_cap != "N/A" %}<span class="chip-tag">💰 {{ company.market_cap }}</span>{% endif %}
+            </div>
             {% if decision.recommendation == "INVEST" %}
                 <span class="badge invest">✅ INVEST</span>
             {% else %}
                 <span class="badge pass">⛔ PASS</span>
             {% endif %}
         </div>
-        <div style="text-align:right;">
-            <div class="muted">Overall Score</div>
-            <div class="score">{{ decision.overall_score }}<span class="muted">/10</span></div>
+        <div class="hero-score">
+            <div class="cap">Overall score</div>
+            <div class="num">{{ decision.overall_score }}<span class="of">/10</span></div>
+            {% with s=decision.overall_score %}
+            <div class="meter {% if s >= 7 %}good{% elif s >= 4 %}warn{% else %}bad{% endif %}" style="width:160px; margin-left:auto;">
+                <span class="meter-fill" style="width: {% widthratio s 10 100 %}%"></span>
+            </div>
+            {% endwith %}
         </div>
     </div>
 </div>
 
-{# ---------------- Score summary ---------------- #}
+{# ---------------- Score summary tiles ---------------- #}
 <div class="card">
-    <h2>Scores</h2>
-    <div class="grid">
-        <div class="kv"><span>Financial Score</span><strong>{{ financials.financial_score }}/10</strong></div>
-        <div class="kv"><span>Risk Score</span><strong>{{ risk.risk_score }}/10</strong></div>
-        <div class="kv"><span>Sentiment Score</span><strong>{{ news.sentiment_score }}/10</strong></div>
-        <div class="kv"><span>Overall Score</span><strong>{{ decision.overall_score }}/10</strong></div>
+    <h2>📊 Scores</h2>
+    <div class="grid-4">
+        {% with s=financials.financial_score %}
+        <div class="tile">
+            <div class="tile-label">Financial</div>
+            <div class="tile-value">{{ s }}<span class="of">/10</span></div>
+            <div class="meter {% if s >= 7 %}good{% elif s >= 4 %}warn{% else %}bad{% endif %}">
+                <span class="meter-fill" style="width: {% widthratio s 10 100 %}%"></span>
+            </div>
+        </div>
+        {% endwith %}
+        {% with s=risk.risk_score %}
+        <div class="tile">
+            <div class="tile-label">Risk (lower = better)</div>
+            <div class="tile-value">{{ s }}<span class="of">/10</span></div>
+            <div class="meter {% if s <= 3 %}good{% elif s <= 6 %}warn{% else %}bad{% endif %}">
+                <span class="meter-fill" style="width: {% widthratio s 10 100 %}%"></span>
+            </div>
+        </div>
+        {% endwith %}
+        {% with s=news.sentiment_score %}
+        <div class="tile">
+            <div class="tile-label">Sentiment</div>
+            <div class="tile-value">{{ s }}<span class="of">/10</span></div>
+            <div class="meter {% if s >= 7 %}good{% elif s >= 4 %}warn{% else %}bad{% endif %}">
+                <span class="meter-fill" style="width: {% widthratio s 10 100 %}%"></span>
+            </div>
+        </div>
+        {% endwith %}
+        {% with s=decision.overall_score %}
+        <div class="tile">
+            <div class="tile-label">Overall</div>
+            <div class="tile-value">{{ s }}<span class="of">/10</span></div>
+            <div class="meter {% if s >= 7 %}good{% elif s >= 4 %}warn{% else %}bad{% endif %}">
+                <span class="meter-fill" style="width: {% widthratio s 10 100 %}%"></span>
+            </div>
+        </div>
+        {% endwith %}
     </div>
 </div>
 
 {# ---------------- Company overview ---------------- #}
 <div class="card">
-    <h2>Company Overview</h2>
-    <div class="kv"><span>Name</span><strong>{{ company.name }}</strong></div>
-    <div class="kv"><span>Industry</span><strong>{{ company.industry }}</strong></div>
-    <div class="kv"><span>Sector</span><strong>{{ company.sector }}</strong></div>
-    <div class="kv"><span>Market Cap</span><strong>{{ company.market_cap }}</strong></div>
-    <div class="kv"><span>CEO</span><strong>{{ company.ceo }}</strong></div>
+    <h2>🏢 Company Overview</h2>
+    <div class="grid">
+        <div class="kv"><span>Name</span><strong>{{ company.name }}</strong></div>
+        <div class="kv"><span>Industry</span><strong>{{ company.industry }}</strong></div>
+        <div class="kv"><span>Sector</span><strong>{{ company.sector }}</strong></div>
+        <div class="kv"><span>Market Cap</span><strong>{{ company.market_cap }}</strong></div>
+        <div class="kv"><span>CEO</span><strong>{{ company.ceo }}</strong></div>
+        <div class="kv"><span>Ticker</span><strong>{{ ticker }}</strong></div>
+    </div>
     {% if company.summary %}
-        <p class="muted" style="margin-top:1rem;">{{ company.summary|truncatewords:60 }}</p>
+        <p class="muted" style="margin-top:1rem; margin-bottom:0; font-size:.92rem;">{{ company.summary|truncatewords:60 }}</p>
     {% endif %}
 </div>
 
 {# ---------------- Financial analysis ---------------- #}
 <div class="card">
-    <h2>Financial Analysis — {{ financials.financial_score }}/10</h2>
-    <div class="grid">
-        <div class="kv"><span>Revenue</span><strong>{{ financials.metrics.revenue }}</strong></div>
-        <div class="kv"><span>Revenue Growth</span><strong>{{ financials.metrics.revenue_growth }}</strong></div>
-        <div class="kv"><span>Profit Margin</span><strong>{{ financials.metrics.profit_margin }}</strong></div>
-        <div class="kv"><span>Operating Margin</span><strong>{{ financials.metrics.operating_margin }}</strong></div>
-        <div class="kv"><span>P/E Ratio</span><strong>{{ financials.metrics.pe_ratio }}</strong></div>
-        <div class="kv"><span>Forward P/E</span><strong>{{ financials.metrics.forward_pe }}</strong></div>
-        <div class="kv"><span>Debt / Equity</span><strong>{{ financials.metrics.debt_to_equity }}</strong></div>
-        <div class="kv"><span>Total Debt</span><strong>{{ financials.metrics.total_debt }}</strong></div>
-        <div class="kv"><span>Free Cash Flow</span><strong>{{ financials.metrics.free_cash_flow }}</strong></div>
-        <div class="kv"><span>Return on Equity</span><strong>{{ financials.metrics.return_on_equity }}</strong></div>
+    <h2>📈 Financial Analysis <span class="chip-tag">{{ financials.financial_score }}/10</span></h2>
+    <div class="metrics-grid">
+        <div class="metric"><div class="m-label">Revenue</div><div class="m-value">{{ financials.metrics.revenue }}</div></div>
+        <div class="metric"><div class="m-label">Revenue Growth</div><div class="m-value">{{ financials.metrics.revenue_growth }}</div></div>
+        <div class="metric"><div class="m-label">Profit Margin</div><div class="m-value">{{ financials.metrics.profit_margin }}</div></div>
+        <div class="metric"><div class="m-label">Operating Margin</div><div class="m-value">{{ financials.metrics.operating_margin }}</div></div>
+        <div class="metric"><div class="m-label">Return on Equity</div><div class="m-value">{{ financials.metrics.return_on_equity }}</div></div>
+        <div class="metric"><div class="m-label">P/E Ratio</div><div class="m-value">{{ financials.metrics.pe_ratio }}</div></div>
+        <div class="metric"><div class="m-label">Forward P/E</div><div class="m-value">{{ financials.metrics.forward_pe }}</div></div>
+        <div class="metric"><div class="m-label">Debt / Equity</div><div class="m-value">{{ financials.metrics.debt_to_equity }}</div></div>
+        <div class="metric"><div class="m-label">Total Debt</div><div class="m-value">{{ financials.metrics.total_debt }}</div></div>
+        <div class="metric"><div class="m-label">Free Cash Flow</div><div class="m-value">{{ financials.metrics.free_cash_flow }}</div></div>
     </div>
-    <p style="margin-top:1rem;">{{ financials.analysis }}</p>
+    {% if financials.analysis %}
+        <p style="margin-top:1.1rem; margin-bottom:0;">{{ financials.analysis }}</p>
+    {% endif %}
 </div>
 
 {# ---------------- News analysis ---------------- #}
 <div class="card">
     <h2>
-        News Analysis —
+        📰 News Analysis
         <span class="badge {{ news.sentiment }}">{{ news.sentiment|capfirst }}</span>
-        <span class="muted" style="font-size:.9rem;">({{ news.sentiment_score }}/10)</span>
+        <span class="chip-tag">{{ news.sentiment_score }}/10</span>
     </h2>
-    <p>{{ news.summary }}</p>
+    {% if news.summary %}<p style="margin-top:0;">{{ news.summary }}</p>{% endif %}
     {% if news.headlines %}
-        <h3 style="font-size:1rem;">Recent Headlines</h3>
-        <ul>
-            {% for h in news.headlines %}
-                <li>
-                    {% if h.link %}
-                        <a class="news-link" href="{{ h.link }}" target="_blank" rel="noopener">{{ h.title }}</a>
-                    {% else %}
-                        {{ h.title }}
-                    {% endif %}
-                    <span class="muted"> — {{ h.publisher }}</span>
-                </li>
-            {% endfor %}
-        </ul>
+        <h3 style="font-size:.85rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:.3rem;">Recent Headlines</h3>
+        {% for h in news.headlines %}
+            <div class="news-item">
+                {% if h.link %}
+                    <a class="news-link" href="{{ h.link }}" target="_blank" rel="noopener">{{ h.title }}</a>
+                {% else %}
+                    <span>{{ h.title }}</span>
+                {% endif %}
+                <span class="src">{{ h.publisher }}</span>
+            </div>
+        {% endfor %}
     {% endif %}
 </div>
 
 {# ---------------- Risk analysis ---------------- #}
 <div class="card">
-    <h2>Risk Analysis — {{ risk.risk_score }}/10</h2>
-    <div class="kv"><span><strong>Regulatory</strong></span></div>
-    <p class="muted">{{ risk.regulatory }}</p>
-    <div class="kv"><span><strong>Competition</strong></span></div>
-    <p class="muted">{{ risk.competition }}</p>
-    <div class="kv"><span><strong>Financial</strong></span></div>
-    <p class="muted">{{ risk.financial }}</p>
-    <div class="kv"><span><strong>Market</strong></span></div>
-    <p class="muted">{{ risk.market }}</p>
+    <h2>⚠️ Risk Analysis <span class="chip-tag">{{ risk.risk_score }}/10 — lower is better</span></h2>
+    <div class="risk-grid">
+        <div class="risk-item">
+            <div class="r-title">🏛️ Regulatory</div>
+            <p>{{ risk.regulatory }}</p>
+        </div>
+        <div class="risk-item">
+            <div class="r-title">⚔️ Competition</div>
+            <p>{{ risk.competition }}</p>
+        </div>
+        <div class="risk-item">
+            <div class="r-title">💸 Financial</div>
+            <p>{{ risk.financial }}</p>
+        </div>
+        <div class="risk-item">
+            <div class="r-title">🌍 Market</div>
+            <p>{{ risk.market }}</p>
+        </div>
+    </div>
 </div>
 
 {# ---------------- Final decision ---------------- #}
 <div class="card">
-    <h2>Investment Decision</h2>
-    <p>
-        {% if decision.recommendation == "INVEST" %}
-            <span class="badge invest">✅ INVEST</span>
-        {% else %}
-            <span class="badge pass">⛔ PASS</span>
+    <h2>🤖 Investment Decision</h2>
+    <div class="verdict-banner {% if decision.recommendation == 'INVEST' %}invest{% else %}pass{% endif %}">
+        <span class="v-word">{% if decision.recommendation == "INVEST" %}✅ INVEST{% else %}⛔ PASS{% endif %}</span>
+        <span class="muted">Overall score <strong style="color:var(--text);">{{ decision.overall_score }}/10</strong></span>
+    </div>
+
+    <div class="sr-grid">
+        {% if decision.strengths %}
+        <div>
+            <h3 style="font-size:.85rem; text-transform:uppercase; letter-spacing:.07em; color:var(--good); margin-bottom:.3rem;">Key Strengths</h3>
+            <ul class="plain-list">
+                {% for s in decision.strengths %}<li>✅ <span>{{ s }}</span></li>{% endfor %}
+            </ul>
+        </div>
         {% endif %}
-        &nbsp; Overall Score: <strong>{{ decision.overall_score }}/10</strong>
-    </p>
+        {% if decision.risks %}
+        <div>
+            <h3 style="font-size:.85rem; text-transform:uppercase; letter-spacing:.07em; color:var(--bad); margin-bottom:.3rem;">Key Risks</h3>
+            <ul class="plain-list">
+                {% for r in decision.risks %}<li>⚠️ <span>{{ r }}</span></li>{% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
 
-    {% if decision.strengths %}
-        <h3 style="font-size:1rem;">Key Strengths</h3>
-        <ul>{% for s in decision.strengths %}<li>{{ s }}</li>{% endfor %}</ul>
+    {% if decision.reasoning %}
+        <h3 style="font-size:.85rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin:1.2rem 0 .3rem;">Reasoning</h3>
+        <p style="margin:0;">{{ decision.reasoning }}</p>
     {% endif %}
-
-    {% if decision.risks %}
-        <h3 style="font-size:1rem;">Key Risks</h3>
-        <ul>{% for r in decision.risks %}<li>{{ r }}</li>{% endfor %}</ul>
-    {% endif %}
-
-    <h3 style="font-size:1rem;">Reasoning</h3>
-    <p>{{ decision.reasoning }}</p>
 </div>
 
 <a href="{% url 'home' %}"><button>← Analyze another company</button></a>

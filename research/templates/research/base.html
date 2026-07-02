@@ -10,139 +10,354 @@ Child templates fill the {% block content %} section.
     <title>{% block title %}AI Investment Research Agent{% endblock %}</title>
     <style>
         :root {
-            --bg: #0f172a;
-            --card: #1e293b;
-            --muted: #94a3b8;
-            --text: #e2e8f0;
+            --bg: #0b1120;
+            --bg-2: #0f172a;
+            --card: #151f33;
+            --card-2: #1b2740;
+            --muted: #8fa3bf;
+            --text: #e8eef7;
             --accent: #38bdf8;
-            --good: #22c55e;
-            --bad: #ef4444;
-            --warn: #f59e0b;
-            --border: #334155;
+            --accent-2: #818cf8;
+            --good: #34d399;
+            --bad: #f87171;
+            --warn: #fbbf24;
+            --border: #263450;
+            --ring: rgba(56, 189, 248, .35);
         }
         * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
         body {
             margin: 0;
             font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-            background: var(--bg);
+            background:
+                radial-gradient(1100px 500px at 15% -10%, rgba(56,189,248,.10), transparent 60%),
+                radial-gradient(900px 450px at 90% -20%, rgba(129,140,248,.10), transparent 60%),
+                var(--bg);
             color: var(--text);
-            line-height: 1.6;
+            line-height: 1.65;
+            min-height: 100vh;
         }
+
+        /* ---------- Header ---------- */
         header {
-            padding: 1rem 2rem;
-            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            padding: .85rem 2rem;
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: .6rem;
+            background: rgba(11, 17, 32, .8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
         }
-        header a { color: var(--accent); text-decoration: none; font-weight: 700; }
-        .container { max-width: 960px; margin: 0 auto; padding: 2rem; }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: .55rem;
+            color: var(--text);
+            text-decoration: none;
+            font-weight: 800;
+            font-size: 1.02rem;
+            letter-spacing: .01em;
+        }
+        .brand .logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            font-size: 1.05rem;
+        }
+        .brand small {
+            display: block;
+            font-weight: 500;
+            font-size: .72rem;
+            color: var(--muted);
+            letter-spacing: .04em;
+        }
+        .header-cta {
+            font-size: .85rem;
+            color: var(--muted);
+        }
+        @media (max-width: 640px) {
+            header { padding: .75rem 1.1rem; }
+            .header-cta { display: none; }
+        }
+
+        .container { max-width: 1000px; margin: 0 auto; padding: 2.2rem 1.4rem 4rem; }
+
+        /* ---------- Cards ---------- */
         .card {
-            background: var(--card);
+            background: linear-gradient(180deg, var(--card-2), var(--card));
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
+            border-radius: 16px;
+            padding: 1.6rem 1.7rem;
+            margin-bottom: 1.4rem;
+            box-shadow: 0 10px 30px rgba(2, 8, 23, .35);
+            animation: rise .45s ease both;
         }
-        h1, h2, h3 { margin-top: 0; }
-        h2 { color: var(--accent); font-size: 1.2rem; }
+        @keyframes rise {
+            from { opacity: 0; transform: translateY(10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        h1, h2, h3 { margin-top: 0; line-height: 1.25; }
+        h2 {
+            font-size: .95rem;
+            text-transform: uppercase;
+            letter-spacing: .09em;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            margin-bottom: 1rem;
+        }
         .muted { color: var(--muted); }
+
+        /* ---------- Form controls ---------- */
+        label { font-weight: 600; font-size: .92rem; }
         input[type="text"] {
             width: 100%;
-            padding: .8rem 1rem;
-            font-size: 1rem;
-            border-radius: 8px;
+            padding: .95rem 1.1rem;
+            font-size: 1.05rem;
+            border-radius: 12px;
             border: 1px solid var(--border);
-            background: #0b1220;
+            background: #0b1322;
             color: var(--text);
+            outline: none;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        input[type="text"]:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px var(--ring);
         }
         button {
-            margin-top: 1rem;
-            padding: .8rem 1.4rem;
+            padding: .85rem 1.5rem;
             font-size: 1rem;
-            font-weight: 600;
+            font-weight: 700;
             border: none;
-            border-radius: 8px;
-            background: var(--accent);
-            color: #042f3f;
+            border-radius: 12px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            color: #071726;
             cursor: pointer;
+            transition: transform .12s, box-shadow .12s, opacity .12s;
+            box-shadow: 0 6px 18px rgba(56, 189, 248, .25);
         }
-        button:hover { opacity: .9; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-        .kv { display: flex; justify-content: space-between; padding: .35rem 0; border-bottom: 1px dashed var(--border); }
-        .kv:last-child { border-bottom: none; }
-        .badge {
-            display: inline-block; padding: .25rem .7rem; border-radius: 999px;
-            font-weight: 700; font-size: .9rem;
+        button:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(56, 189, 248, .35); }
+        button:active { transform: translateY(0); }
+        button:disabled { opacity: .6; cursor: wait; transform: none; }
+        .btn-ghost {
+            background: transparent;
+            color: var(--accent);
+            border: 1px solid var(--border);
+            box-shadow: none;
+            font-weight: 600;
         }
-        .badge.invest { background: rgba(34,197,94,.15); color: var(--good); }
-        .badge.pass   { background: rgba(239,68,68,.15); color: var(--bad); }
-        .badge.positive { background: rgba(34,197,94,.15); color: var(--good); }
-        .badge.neutral  { background: rgba(245,158,11,.15); color: var(--warn); }
-        .badge.negative { background: rgba(239,68,68,.15); color: var(--bad); }
-        .score { font-size: 2rem; font-weight: 800; }
-        ul { margin: .4rem 0; padding-left: 1.2rem; }
-        .alert { padding: .8rem 1rem; border-radius: 8px; margin-bottom: 1rem; }
-        .alert.error { background: rgba(239,68,68,.12); color: #fca5a5; }
-        a.news-link { color: var(--accent); text-decoration: none; }
-        a.news-link:hover { text-decoration: underline; }
-        @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+        .btn-ghost:hover { border-color: var(--accent); box-shadow: none; background: rgba(56,189,248,.08); }
 
-        /* ---- Loading overlay + spinner ---- */
+        /* ---------- Layout helpers ---------- */
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+        .kv {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: .5rem 0;
+            border-bottom: 1px dashed var(--border);
+            font-size: .95rem;
+        }
+        .kv:last-child { border-bottom: none; }
+        .kv span { color: var(--muted); }
+
+        /* ---------- Badges ---------- */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            padding: .32rem .85rem;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: .88rem;
+            border: 1px solid transparent;
+        }
+        .badge.invest   { background: rgba(52,211,153,.12); color: var(--good); border-color: rgba(52,211,153,.35); }
+        .badge.pass     { background: rgba(248,113,113,.12); color: var(--bad); border-color: rgba(248,113,113,.35); }
+        .badge.positive { background: rgba(52,211,153,.12); color: var(--good); }
+        .badge.neutral  { background: rgba(251,191,36,.12); color: var(--warn); }
+        .badge.negative { background: rgba(248,113,113,.12); color: var(--bad); }
+        .chip-tag {
+            display: inline-block;
+            padding: .18rem .7rem;
+            border-radius: 999px;
+            font-size: .8rem;
+            font-weight: 600;
+            color: var(--muted);
+            background: rgba(143,163,191,.1);
+            border: 1px solid var(--border);
+        }
+
+        /* ---------- Stat tiles + meters ---------- */
+        .tile {
+            background: rgba(11, 19, 34, .55);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1rem 1.1rem;
+        }
+        .tile-label {
+            font-size: .78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            color: var(--muted);
+            margin-bottom: .35rem;
+        }
+        .tile-value { font-size: 1.7rem; font-weight: 800; line-height: 1.1; }
+        .tile-value .of { font-size: .95rem; font-weight: 600; color: var(--muted); }
+        .meter {
+            margin-top: .65rem;
+            height: 8px;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .meter .meter-fill {
+            display: block;
+            height: 100%;
+            border-radius: 999px;
+            transition: width .6s ease;
+        }
+        .meter.good { background: rgba(52,211,153,.16); }
+        .meter.good .meter-fill { background: var(--good); }
+        .meter.warn { background: rgba(251,191,36,.16); }
+        .meter.warn .meter-fill { background: var(--warn); }
+        .meter.bad  { background: rgba(248,113,113,.16); }
+        .meter.bad  .meter-fill { background: var(--bad); }
+
+        /* ---------- Hero figure ---------- */
+        .hero-score { text-align: right; }
+        .hero-score .num { font-size: 3.4rem; font-weight: 800; line-height: 1; }
+        .hero-score .num .of { font-size: 1.2rem; color: var(--muted); font-weight: 600; }
+        .hero-score .cap {
+            font-size: .78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--muted);
+        }
+
+        /* ---------- Lists ---------- */
+        ul { margin: .4rem 0; padding-left: 1.2rem; }
+        li { margin-bottom: .35rem; }
+        .plain-list { list-style: none; padding: 0; margin: 0; }
+        .plain-list li {
+            display: flex;
+            gap: .6rem;
+            align-items: flex-start;
+            padding: .5rem 0;
+            border-bottom: 1px dashed var(--border);
+        }
+        .plain-list li:last-child { border-bottom: none; }
+
+        .alert { padding: .85rem 1.1rem; border-radius: 12px; margin-bottom: 1rem; border: 1px solid transparent; }
+        .alert.error {
+            background: rgba(248,113,113,.1);
+            border-color: rgba(248,113,113,.3);
+            color: #fca5a5;
+        }
+        a.news-link { color: var(--text); text-decoration: none; font-weight: 500; }
+        a.news-link:hover { color: var(--accent); }
+
+        @media (max-width: 760px) {
+            .grid, .grid-4 { grid-template-columns: 1fr 1fr; }
+            .hero-score { text-align: left; }
+        }
+        @media (max-width: 480px) {
+            .grid, .grid-4 { grid-template-columns: 1fr; }
+        }
+
+        /* ---------- Loading overlay ---------- */
         #loading-overlay {
-            display: none;                 /* shown via JS on form submit */
+            display: none;
             position: fixed;
             inset: 0;
-            background: rgba(15, 23, 42, .85);
-            backdrop-filter: blur(2px);
+            background: rgba(7, 12, 24, .88);
+            backdrop-filter: blur(4px);
             z-index: 1000;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 1.2rem;
+            gap: 1.3rem;
             text-align: center;
             padding: 1rem;
         }
         #loading-overlay.show { display: flex; }
         .spinner {
-            width: 56px;
-            height: 56px;
-            border: 6px solid var(--border);
+            width: 58px;
+            height: 58px;
+            border: 5px solid var(--border);
             border-top-color: var(--accent);
             border-radius: 50%;
-            animation: spin 0.9s linear infinite;
+            animation: spin .85s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        #loading-overlay .loading-text { font-weight: 700; font-size: 1.1rem; }
-        #loading-overlay .loading-sub { color: var(--muted); font-size: .9rem; }
+        #loading-overlay .loading-text { font-weight: 800; font-size: 1.15rem; }
+        #loading-overlay .loading-step { color: var(--accent); font-weight: 600; min-height: 1.6em; }
+        #loading-overlay .loading-sub { color: var(--muted); font-size: .88rem; }
     </style>
 </head>
 <body>
     {# Full-screen loading overlay, hidden until a form is submitted #}
     <div id="loading-overlay">
         <div class="spinner"></div>
-        <div class="loading-text">🔍 Analyzing… please wait</div>
-        <div class="loading-sub">Researching company, financials, news &amp; risks (10–30s)</div>
+        <div class="loading-text">Analyzing…</div>
+        <div class="loading-step" id="loading-step">🔍 Researching company…</div>
+        <div class="loading-sub">This usually takes 10–30 seconds</div>
     </div>
+
     <header>
-        📈 <a href="{% url 'home' %}">AI Investment Research Agent</a>
+        <a class="brand" href="{% url 'home' %}">
+            <span class="logo">📈</span>
+            <span>
+                AI Investment Research
+                <small>LangGraph · Gemini · Live market data</small>
+            </span>
+        </a>
+        <span class="header-cta">INVEST / PASS in one click</span>
     </header>
+
     <div class="container">
         {% if messages %}
             {% for message in messages %}
-                <div class="alert error">{{ message }}</div>
+                <div class="alert error">⚠️ {{ message }}</div>
             {% endfor %}
         {% endif %}
         {% block content %}{% endblock %}
     </div>
 
     <script>
-        // Show the loading overlay whenever a form marked data-loading is submitted.
+        // Show the loading overlay whenever a form marked data-loading is submitted,
+        // and walk through the agent's 5 steps so the wait feels alive.
+        var stepTimer = null;
+        var steps = [
+            "🔍 Researching company…",
+            "📊 Analyzing financials…",
+            "📰 Scanning recent news…",
+            "⚠️ Assessing risks…",
+            "🤖 Making the final decision…"
+        ];
         document.addEventListener("submit", function (event) {
             var form = event.target;
             if (form.matches("form[data-loading]")) {
                 document.getElementById("loading-overlay").classList.add("show");
-                // Disable the submit button so users can't double-submit.
+                var stepEl = document.getElementById("loading-step");
+                var i = 0;
+                stepEl.textContent = steps[0];
+                stepTimer = setInterval(function () {
+                    i = Math.min(i + 1, steps.length - 1);
+                    stepEl.textContent = steps[i];
+                }, 5000);
                 var btn = form.querySelector("button[type=submit]");
                 if (btn) { btn.disabled = true; btn.textContent = "Analyzing…"; }
             }
@@ -151,6 +366,7 @@ Child templates fill the {% block content %} section.
         // If the user navigates back, hide the overlay and re-enable the button.
         window.addEventListener("pageshow", function () {
             document.getElementById("loading-overlay").classList.remove("show");
+            if (stepTimer) { clearInterval(stepTimer); stepTimer = null; }
             document.querySelectorAll("button[type=submit]").forEach(function (btn) {
                 btn.disabled = false;
                 if (btn.textContent.trim() === "Analyzing…") { btn.textContent = "Analyze 🔍"; }

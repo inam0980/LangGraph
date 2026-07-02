@@ -3,39 +3,144 @@
 {% block title %}Home - AI Investment Research Agent{% endblock %}
 
 {% block content %}
+<style>
+    .hero-title {
+        font-size: 2.3rem;
+        font-weight: 800;
+        letter-spacing: -.02em;
+        margin-bottom: .4rem;
+        background: linear-gradient(90deg, #e8eef7, #38bdf8 65%, #818cf8);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .hero-sub { max-width: 620px; }
+    .search-row { display: flex; gap: .8rem; margin-top: .6rem; }
+    .search-row input { flex: 1; }
+    .search-row button { white-space: nowrap; margin: 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; }
+    .chip {
+        padding: .35rem .9rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: rgba(56,189,248,.06);
+        color: var(--muted);
+        font-size: .85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all .15s;
+        box-shadow: none;
+    }
+    .chip:hover { color: var(--accent); border-color: var(--accent); transform: none; box-shadow: none; }
+    .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: .9rem; }
+    .step {
+        background: rgba(11,19,34,.55);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 1rem;
+    }
+    .step .icon { font-size: 1.4rem; }
+    .step .n {
+        font-size: .72rem;
+        font-weight: 700;
+        color: var(--accent);
+        letter-spacing: .08em;
+        text-transform: uppercase;
+    }
+    .step .t { font-weight: 700; font-size: .92rem; margin: .15rem 0 .2rem; }
+    .step .d { font-size: .8rem; color: var(--muted); line-height: 1.45; }
+    @media (max-width: 860px) { .steps { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 560px) {
+        .steps { grid-template-columns: 1fr; }
+        .search-row { flex-direction: column; }
+        .hero-title { font-size: 1.7rem; }
+    }
+</style>
+
 <div class="card">
-    <h1>Research any public company with AI</h1>
-    <p class="muted">
-        Enter a stock ticker symbol. The agent will research the company,
-        analyze its financials, scan recent news, assess risks, and give you
-        an INVEST or PASS recommendation.
+    <div class="hero-title">Research any public company with AI</div>
+    <p class="muted hero-sub">
+        Type a stock ticker or just the company's name. The agent researches the
+        company, analyzes its financials, scans recent news, assesses risks —
+        and gives you a clear <strong style="color:var(--good)">INVEST</strong> or
+        <strong style="color:var(--bad)">PASS</strong> verdict with scores.
     </p>
 
     {% comment %} The form posts to the "analyze" view. {% endcomment %}
     <form method="post" action="{% url 'analyze' %}" data-loading>
         {% csrf_token %}
-        <label for="ticker"><strong>Stock Ticker or Company Name</strong></label>
-        <input
-            type="text"
-            id="ticker"
-            name="ticker"
-            placeholder="e.g. AAPL or Apple, MSFT or Microsoft, Google, Tesla"
-            autocomplete="off"
-            autofocus
-        >
-        <button type="submit">Analyze 🔍</button>
+        <label for="ticker">Stock ticker or company name</label>
+        <div class="search-row">
+            <input
+                type="text"
+                id="ticker"
+                name="ticker"
+                placeholder="e.g. AAPL or Apple, MSFT or Microsoft, Google, Tesla…"
+                autocomplete="off"
+                autofocus
+            >
+            <button type="submit">Analyze 🔍</button>
+        </div>
     </form>
+
+    <div class="chips">
+        <span class="muted" style="font-size:.85rem; align-self:center;">Try:</span>
+        <button type="button" class="chip" data-ticker="AAPL">🍎 Apple</button>
+        <button type="button" class="chip" data-ticker="MSFT">🪟 Microsoft</button>
+        <button type="button" class="chip" data-ticker="GOOGL">🔎 Google</button>
+        <button type="button" class="chip" data-ticker="TSLA">🚗 Tesla</button>
+        <button type="button" class="chip" data-ticker="AMZN">📦 Amazon</button>
+        <button type="button" class="chip" data-ticker="NVDA">🎮 Nvidia</button>
+    </div>
 </div>
 
 <div class="card">
-    <h2>How it works</h2>
-    <ol class="muted">
-        <li><strong>Company Research</strong> — name, industry, sector, market cap, CEO</li>
-        <li><strong>Financial Analysis</strong> — revenue, profitability, debt, P/E, cash flow → score</li>
-        <li><strong>News Analysis</strong> — recent headlines + sentiment</li>
-        <li><strong>Risk Analysis</strong> — regulatory, competition, financial, market → score</li>
-        <li><strong>Investment Decision</strong> — overall score + recommendation + reasoning</li>
-    </ol>
-    <p class="muted"><em>Note: analysis can take 10–30 seconds (multiple AI calls).</em></p>
+    <h2>⚙️ How it works</h2>
+    <div class="steps">
+        <div class="step">
+            <div class="icon">🔍</div>
+            <div class="n">Step 1</div>
+            <div class="t">Company Research</div>
+            <div class="d">Name, industry, sector, market cap &amp; CEO</div>
+        </div>
+        <div class="step">
+            <div class="icon">📊</div>
+            <div class="n">Step 2</div>
+            <div class="t">Financial Analysis</div>
+            <div class="d">Revenue, margins, debt, P/E &amp; cash flow → score</div>
+        </div>
+        <div class="step">
+            <div class="icon">📰</div>
+            <div class="n">Step 3</div>
+            <div class="t">News Analysis</div>
+            <div class="d">Recent headlines + market sentiment</div>
+        </div>
+        <div class="step">
+            <div class="icon">⚠️</div>
+            <div class="n">Step 4</div>
+            <div class="t">Risk Analysis</div>
+            <div class="d">Regulatory, competition, financial &amp; market</div>
+        </div>
+        <div class="step">
+            <div class="icon">🤖</div>
+            <div class="n">Step 5</div>
+            <div class="t">Decision</div>
+            <div class="d">Overall score + INVEST / PASS with reasoning</div>
+        </div>
+    </div>
+    <p class="muted" style="margin-bottom:0; margin-top:1rem; font-size:.85rem;">
+        <em>Analysis takes 10–30 seconds — the agent makes live data + AI calls.</em>
+    </p>
 </div>
+
+<script>
+    // Quick-pick chips fill the input and submit right away.
+    document.querySelectorAll(".chip").forEach(function (chip) {
+        chip.addEventListener("click", function () {
+            var input = document.getElementById("ticker");
+            input.value = chip.dataset.ticker;
+            input.form.requestSubmit();
+        });
+    });
+</script>
 {% endblock %}
