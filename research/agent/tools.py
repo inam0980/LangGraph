@@ -63,6 +63,22 @@ def _av_get(params: dict[str, str]) -> dict[str, Any]:
     return data
 
 
+# Per-process cache so one analysis never burns the same Alpha Vantage
+# request twice (the free tier allows only 25 requests/day).
+_av_cache: dict[tuple[str, str], dict[str, Any]] = {}
+
+
+def _av_get_cached(function: str, cache_key: str, **params: str) -> dict[str, Any]:
+    """Like ``_av_get`` but caches successful responses per (function, symbol)."""
+    key = (function, cache_key)
+    if key in _av_cache:
+        return _av_cache[key]
+    data = _av_get({"function": function, **params})
+    if "error" not in data:
+        _av_cache[key] = data
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Small formatting helpers
 # ---------------------------------------------------------------------------
@@ -126,6 +142,101 @@ def _safe_info(ticker: str, retries: int = 3) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Alpha Vantage fallback (kicks in when Yahoo rate-limits us, e.g. from
+# PythonAnywhere's shared IPs where yfinance reliably gets 429'd)
+# ---------------------------------------------------------------------------
+def _av_company_information(ticker: str) -> dict[str, Any]:
+    """Company profile from Alpha Vantage OVERVIEW."""
+    print(f"[agent] Yahoo failed; trying Alpha Vantage for {ticker} company info...", flush=True)
+    data = _av_get_cached("OVERVIEW", ticker, symbol=ticker)
+    if "error" in data:
+        return {"error": f"No company data found for ticker '{ticker}' "
+                         f"(Yahoo rate-limited; Alpha Vantage fallback: {data['error']})"}
+    if not data.get("Name"):
+        return {"error": f"No company data found for ticker '{ticker}'."}
+    return {
+        "name": data.get("Name") or ticker,
+        "industry": (data.get("Industry") or "N/A").title(),
+        "sector": (data.get("Sector") or "N/A").title(),
+        "market_cap": _human_money(data.get("MarketCapitalization")),
+        # Alpha Vantage's OVERVIEW endpoint does not expose company officers.
+        "ceo": "N/A",
+        "summary": data.get("Description", ""),
+    }
+
+
+def _av_financial_data(ticker: str) -> dict[str, Any]:
+    """Key financial metrics from Alpha Vantage OVERVIEW.
+
+    Debt / cash-flow figures live in separate endpoints; we skip them to
+    preserve the 25-requests/day free quota and report "N/A" instead.
+    """
+    print(f"[agent] Yahoo failed; trying Alpha Vantage for {ticker} financials...", flush=True)
+    data = _av_get_cached("OVERVIEW", ticker, symbol=ticker)
+    if "error" in data:
+        return {"error": data["error"]}
+    if not data.get("Name"):
+        return {"error": f"No financial data found for ticker '{ticker}'."}
+    return {
+        "revenue": _human_money(data.get("RevenueTTM")),
+        "revenue_growth": _pct(data.get("QuarterlyRevenueGrowthYOY")),
+        "profit_margin": _pct(data.get("ProfitMargin")),
+        "operating_margin": _pct(data.get("OperatingMarginTTM")),
+        "pe_ratio": _round(data.get("TrailingPE") or data.get("PERatio")),
+        "forward_pe": _round(data.get("ForwardPE")),
+        "debt_to_equity": "N/A",
+        "total_debt": "N/A",
+        "free_cash_flow": "N/A",
+        "operating_cash_flow": "N/A",
+        "return_on_equity": _pct(data.get("ReturnOnEquityTTM")),
+    }
+
+
+def _av_recent_news(ticker: str, limit: int = 6) -> list[dict[str, str]]:
+    """Recent headlines from Alpha Vantage NEWS_SENTIMENT."""
+    print(f"[agent] Yahoo failed; trying Alpha Vantage for {ticker} news...", flush=True)
+    data = _av_get_cached("NEWS_SENTIMENT", ticker, tickers=ticker, limit="20")
+    items = data.get("feed") or []
+    return [
+        {
+            "title": item.get("title", ""),
+            "publisher": item.get("source") or "Unknown",
+            "link": item.get("url") or "",
+        }
+        for item in items[:limit]
+        if item.get("title")
+    ]
+
+
+def _av_resolve_ticker(query: str) -> str:
+    """Name -> ticker via Alpha Vantage SYMBOL_SEARCH ('' if nothing found).
+
+    Alpha Vantage ranks by *symbol* similarity, so "Apple" ranks APLE (Apple
+    Hospitality REIT) above AAPL (Apple Inc). We re-rank: among US equities,
+    prefer the one whose company name starts with the query, breaking ties
+    with the shortest name — "Apple Inc" beats "Apple Hospitality REIT Inc".
+    """
+    data = _av_get_cached("SYMBOL_SEARCH", query.upper(), keywords=query)
+    matches = data.get("bestMatches") or []
+
+    us_equities = [
+        m for m in matches
+        if m.get("3. type") == "Equity" and m.get("4. region") == "United States" and m.get("1. symbol")
+    ]
+    q = query.lower()
+    name_matches = [m for m in us_equities if (m.get("2. name") or "").lower().startswith(q)]
+    if name_matches:
+        best = min(name_matches, key=lambda m: len(m.get("2. name") or ""))
+        return best["1. symbol"].upper()
+    if us_equities:
+        return us_equities[0]["1. symbol"].upper()
+    for match in matches:
+        if match.get("1. symbol"):
+            return match["1. symbol"].upper()
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Ticker resolution (lets users type a company NAME or a ticker)
 # ---------------------------------------------------------------------------
 def resolve_ticker(query: str) -> str:
@@ -170,7 +281,12 @@ def resolve_ticker(query: str) -> str:
     except Exception:  # noqa: BLE001 - search may be unavailable
         pass
 
-    # 3. Nothing worked; return the cleaned input so the caller can error out.
+    # 3. Yahoo search failed (likely rate-limited) — try Alpha Vantage.
+    symbol = _av_resolve_ticker(query)
+    if symbol:
+        return symbol
+
+    # 4. Nothing worked; return the cleaned input so the caller can error out.
     return query.upper()
 
 
@@ -182,7 +298,8 @@ def get_company_information(ticker: str) -> dict[str, Any]:
     try:
         info = _safe_info(ticker)
         if not info.get("longName") and not info.get("shortName"):
-            return {"error": f"No company data found for ticker '{ticker}'."}
+            # Yahoo gave nothing (bad symbol OR rate-limited) — try Alpha Vantage.
+            return _av_company_information(ticker)
 
         # Find the CEO from the list of officers, if present.
         ceo = "N/A"
@@ -209,7 +326,8 @@ def get_financial_data(ticker: str) -> dict[str, Any]:
     try:
         info = _safe_info(ticker)
         if not info:
-            return {"error": f"No financial data found for ticker '{ticker}'."}
+            # Yahoo gave nothing (bad symbol OR rate-limited) — try Alpha Vantage.
+            return _av_financial_data(ticker)
 
         return {
             "revenue": _human_money(info.get("totalRevenue")),
@@ -237,7 +355,10 @@ def get_recent_news(ticker: str, limit: int = 6) -> list[dict[str, str]]:
     try:
         raw_items = yf.Ticker(ticker).news or []
     except Exception:  # noqa: BLE001
-        return []
+        raw_items = []
+    if not raw_items:
+        # Yahoo gave nothing (rate-limited?) — try Alpha Vantage instead.
+        return _av_recent_news(ticker, limit)
 
     headlines: list[dict[str, str]] = []
     for item in raw_items[:limit]:
